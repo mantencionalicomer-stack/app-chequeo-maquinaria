@@ -98,10 +98,11 @@ else:
                 
                 cod_seleccionado = equipo_seleccionado.split(" - ")[0]
                 categoria_seleccionada = df_equipos[df_equipos["codigo_interno"] == cod_seleccionado].iloc[0]["categoria"]
+                # Guardamos el ID del equipo para la futura inserción
+                equipo_id = df_equipos[df_equipos["codigo_interno"] == cod_seleccionado].iloc[0].name # asumiendo que traemos el ID, ajustaremos esto en el insert
                 
             with col2:
-                turno = st.selectbox("Turno", ["Día", "Tarde", "Noche"])
-                fecha = st.date_input("Fecha")
+                fecha = st.date_input("Fecha de Inspección")
             
             st.divider()
             st.subheader(f"Ítems de Revisión: {categoria_seleccionada}")
