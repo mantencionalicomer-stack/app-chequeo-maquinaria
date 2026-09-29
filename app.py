@@ -88,7 +88,8 @@ else:
             default_index = planta_options.index(planta_default) if planta_default in planta_options else 0
             planta_seleccionada = st.selectbox("🏭 Seleccione Planta", planta_options, index=default_index)
         
-        df_equipos = run_query(f"SELECT codigo_interno, nombre, categoria FROM equipos WHERE planta = '{planta_seleccionada}' ORDER BY codigo_interno")
+        # OBTENEMOS EL ID DEL EQUIPO DIRECTO DESDE LA BD
+        df_equipos = run_query(f"SELECT id, codigo_interno, nombre, categoria FROM equipos WHERE planta = '{planta_seleccionada}' ORDER BY codigo_interno")
         
         if df_equipos is not None and not df_equipos.empty:
             col1, col2 = st.columns(2)
@@ -97,9 +98,9 @@ else:
                 equipo_seleccionado = st.selectbox("Seleccione el Equipo", equipo_display)
                 
                 cod_seleccionado = equipo_seleccionado.split(" - ")[0]
-                categoria_seleccionada = df_equipos[df_equipos["codigo_interno"] == cod_seleccionado].iloc[0]["categoria"]
-                # Guardamos el ID del equipo para la futura inserción
-                equipo_id = df_equipos[df_equipos["codigo_interno"] == cod_seleccionado].iloc[0].name # asumiendo que traemos el ID, ajustaremos esto en el insert
+                equipo_row = df_equipos[df_equipos["codigo_interno"] == cod_seleccionado].iloc[0]
+                categoria_seleccionada = equipo_row["categoria"]
+                equipo_id_seleccionado = str(equipo_row["id"])
                 
             with col2:
                 fecha = st.date_input("Fecha de Inspección")
@@ -110,7 +111,7 @@ else:
             df_preguntas = run_query(f"SELECT grupo, orden, descripcion FROM plantilla_items WHERE categoria_equipo = '{categoria_seleccionada}' ORDER BY orden")
             
             if df_preguntas is not None and not df_preguntas.empty:
-                with st.form("form_chequeo"):
+                with st.form("form_chequeo", clear_on_submit=True):
                     grupos = df_preguntas["grupo"].unique()
                     for grupo in grupos:
                         st.markdown(f"#### {grupo}")
@@ -123,9 +124,50 @@ else:
                             c_obs.text_input("Observación", key=f"obs_{row['orden']}", label_visibility="collapsed")
                     
                     st.divider()
-                    st.text_area("Observaciones Generales")
+                    st.text_area("Observaciones Generales", key="obs_generales")
+                    
                     if st.form_submit_button("Guardar Chequeo ✅"):
-                        st.success("¡Estructura lista! El siguiente paso será la inserción a la BD del formulario guardado.")
+                        try:
+                            cabecera_id = str(uuid.uuid4())
+                            usuario_id = str(st.session_state.user_data["id"])
+                            obs_gen = st.session_state["obs_generales"]
+                            
+                            # Preparar las consultas
+                            query_cabecera = text("""
+                                INSERT INTO chequeos_cabecera (id, equipo_id, usuario_id, fecha_registro, observaciones_generales)
+                                VALUES (:id, :eq_id, :usr_id, :fecha, :obs_gen)
+                            """)
+                            
+                            query_detalle = text("""
+                                INSERT INTO chequeos_detalle (id, chequeo_id, grupo, item_descripcion, estado_item, observacion_item)
+                                VALUES (:id, :cab_id, :grp, :desc, :est, :obs)
+                            """)
+                            
+                            with engine.begin() as conn:
+                                # 1. Guardar Cabecera
+                                conn.execute(query_cabecera, {
+                                    "id": cabecera_id,
+                                    "eq_id": equipo_id_seleccionado,
+                                    "usr_id": usuario_id,
+                                    "fecha": fecha,
+                                    "obs_gen": obs_gen
+                                })
+                                
+                                # 2. Guardar Detalles (respuestas)
+                                for _, row in df_preguntas.iterrows():
+                                    orden = row['orden']
+                                    conn.execute(query_detalle, {
+                                        "id": str(uuid.uuid4()),
+                                        "cab_id": cabecera_id,
+                                        "grp": row["grupo"],
+                                        "desc": row["descripcion"],
+                                        "est": st.session_state[f"est_{orden}"],
+                                        "obs": st.session_state[f"obs_{orden}"]
+                                    })
+                            
+                            st.success(f"¡Chequeo guardado exitosamente en la base de datos! (ID Registro: {cabecera_id[:8]})")
+                        except Exception as e:
+                            st.error(f"Error al guardar en la base de datos: {e}")
             else:
                 st.warning(f"No hay preguntas configuradas para {categoria_seleccionada}.")
         else:
