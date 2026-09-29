@@ -4,8 +4,10 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 import hashlib
 
+# 1. Configuración de página
 st.set_page_config(page_title="Chequeo Maquinaria", page_icon="📝", layout="wide")
 
+# 2. Conexión a Base de Datos
 @st.cache_resource
 def init_connection():
     return create_engine(st.secrets["SUPABASE_URI"])
@@ -24,17 +26,16 @@ def run_query(query, params=None):
             return pd.DataFrame(result.fetchall(), columns=result.keys())
         return None
 
-# Función de encriptación para comparar contraseñas
+# 3. Funciones de Seguridad y Estado
 def make_hash(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
-# Inicializar variables de sesión
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user_data' not in st.session_state:
     st.session_state.user_data = None
 
-# --- PANTALLA DE LOGIN ---
+# --- 4. PANTALLA DE LOGIN ---
 if not st.session_state.logged_in:
     st.markdown("<h1 style='text-align: center;'>🏭 Sistema de Gestión de Mantenimiento</h1>", unsafe_allow_html=True)
     st.divider()
@@ -62,7 +63,7 @@ if not st.session_state.logged_in:
                 else:
                     st.warning("Por favor ingresa usuario y contraseña.")
 
-# --- APLICACIÓN PRINCIPAL (Solo visible si está logueado) ---
+# --- 5. APLICACIÓN PRINCIPAL (Solo logueados) ---
 else:
     with st.sidebar:
         st.title("📝 Control de Equipos")
@@ -76,12 +77,12 @@ else:
             st.session_state.user_data = None
             st.rerun()
 
+    # --- PESTAÑA: REALIZAR CHEQUEO ---
     if menu == "Realizar Chequeo":
         st.header("📋 Nuevo Chequeo Diario")
         
         col_p1, col_p2 = st.columns([1, 2])
         with col_p1:
-            # Pre-seleccionar la planta del usuario
             planta_default = st.session_state.user_data['planta_origen']
             planta_options = ["La Florida", "Quilicura"]
             default_index = planta_options.index(planta_default) if planta_default in planta_options else 0
@@ -129,16 +130,17 @@ else:
         else:
             st.warning(f"No hay equipos registrados para la planta {planta_seleccionada}.")
 
+    # --- PESTAÑA: HISTORIAL ---
     elif menu == "Historial de Chequeos":
         st.header("📋 Historial de Inspecciones")
         st.info("Módulo en construcción...")
 
+    # --- PESTAÑA: MANTENEDOR (Solo Administradores) ---
     elif menu == "Mantenedor Maestros":
-        # Solo mostrar mantenedores a Administradores
         if st.session_state.user_data['rol'] == 'Administrador':
-            st.header("🔧 Mantenedor de Equipos")
+            st.header("🔧 Mantenedores Maestros")
             
-            tab_ver, tab_agregar = st.tabs(["📋 Lista de Equipos", "➕ Nuevo Equipo"])
+            tab_ver, tab_agregar, tab_usuarios = st.tabs(["📋 Lista de Equipos", "➕ Nuevo Equipo", "👥 Gestión de Usuarios"])
             
             with tab_ver:
                 st.subheader("Equipos Registrados en el Sistema")
@@ -185,5 +187,42 @@ else:
                                 st.error(f"Error al guardar. Es probable que el Código Interno ya exista. (Detalle técnico: {e})")
                         else:
                             st.warning("El Código Interno y el Nombre son obligatorios.")
+            
+            with tab_usuarios:
+                st.subheader("Registrar Nuevo Usuario")
+                
+                with st.form("form_nuevo_usuario"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        nuevo_nombre_usr = st.text_input("Nombre Completo (Ej: Juan Pérez)")
+                        nuevo_username = st.text_input("Nombre de Usuario (Ej: jperez)")
+                        nueva_planta_usr = st.selectbox("Planta Base", ["La Florida", "Quilicura"], key="planta_usr")
+                    with col2:
+                        nuevo_rol = st.selectbox("Rol", ["Inspector", "Administrador"])
+                        nuevo_password = st.text_input("Contraseña", type="password")
+                    
+                    submit_usuario = st.form_submit_button("Crear Usuario 👤")
+                    
+                    if submit_usuario:
+                        if nuevo_nombre_usr.strip() and nuevo_username.strip() and nuevo_password.strip():
+                            pwd_hash = make_hash(nuevo_password)
+                            try:
+                                query_insert_usr = text("""
+                                INSERT INTO usuarios (username, password_hash, nombre_completo, rol, planta_origen)
+                                VALUES (:usr, :pwd, :nom, :rol, :planta)
+                                """)
+                                with engine.begin() as conn:
+                                    conn.execute(query_insert_usr, {
+                                        "usr": nuevo_username.strip(),
+                                        "pwd": pwd_hash,
+                                        "nom": nuevo_nombre_usr.strip(),
+                                        "rol": nuevo_rol,
+                                        "planta": nueva_planta_usr
+                                    })
+                                st.success(f"Usuario '{nuevo_username}' creado con éxito.")
+                            except Exception as e:
+                                st.error(f"Error al crear usuario. ¿Quizás el nombre de usuario ya existe? (Detalle: {e})")
+                        else:
+                            st.warning("Todos los campos de texto son obligatorios.")
         else:
             st.error("No tienes permisos de Administrador para ver esta sección.")
